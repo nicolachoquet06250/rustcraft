@@ -1,0 +1,35 @@
+services:
+  rustcraft:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    environment:
+      DISPLAY: ${DISPLAY}
+      WINIT_UNIX_BACKEND: x11
+      RUST_LOG: debug
+      CARGO_INCREMENTAL: "1"
+    volumes:
+      - ./app:/app
+
+      # caches cargo pour éviter de tout retélécharger
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/app/target
+
+      # WSLg / GUI Windows
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
+
+      # GPU WSLg
+      - /usr/lib/wsl:/usr/lib/wsl:ro
+    devices:
+      - /dev/dxg:/dev/dxg
+    command: cargo run
+    stdin_open: true
+    tty: true
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  target-cache:
