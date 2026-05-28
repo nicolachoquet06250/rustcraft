@@ -1,4 +1,5 @@
 .idea/*
 /app/target
+/target
 .junie/*
 !.junie/skills
