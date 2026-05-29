@@ -173,12 +173,12 @@ fn get_block_world(chunks: &HashMap<ChunkPos, Chunk>, world_pos: IVec3) -> Block
 }
 
 fn should_render_face(current: BlockId, neighbor: BlockId) -> bool {
-    if neighbor == current {
-        return false;
-    }
-
     if current == BlockId::Water {
         return neighbor != BlockId::Water;
+    }
+
+    if neighbor == current {
+        return false;
     }
 
     if neighbor == BlockId::Water {
