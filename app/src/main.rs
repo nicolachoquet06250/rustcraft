@@ -150,7 +150,9 @@ fn find_spawn_in_column(x: i32, z: i32, min_y: i32, max_y: i32) -> Option<Vec3> 
 }
 
 fn generated_world_collides(camera_position: Vec3) -> bool {
-    collides_with_blocks(camera_position, |world_pos| generated_block_at(world_pos).is_solid())
+    collides_with_blocks(camera_position, false, |world_pos| {
+        generated_block_at(world_pos).is_solid()
+    })
 }
 
 fn generated_block_at(world_pos: IVec3) -> core::BlockId {

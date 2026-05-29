@@ -106,7 +106,7 @@ pub fn generate_block_texture_atlas() -> Image {
             TILE_DIRT => block_base_color(BlockId::Dirt),
             TILE_STONE => block_base_color(BlockId::Stone),
             TILE_SAND => block_base_color(BlockId::Sand),
-            TILE_WATER_TOP | TILE_WATER_SIDE => block_base_color(BlockId::Water),
+            TILE_WATER_TOP => block_base_color(BlockId::Water),
             TILE_WOOD => block_base_color(BlockId::Wood),
             TILE_LEAVES => block_base_color(BlockId::Leaves),
             TILE_COAL_ORE => block_base_color(BlockId::CoalOre),
@@ -119,9 +119,15 @@ pub fn generate_block_texture_atlas() -> Image {
                 let y = tile_y * ATLAS_TILE_SIZE + py;
                 let i = ((y * ATLAS_SIZE + x) * 4) as usize;
 
-                let n = noise.get([px as f64 * 0.25, py as f64 * 0.25]) as f32;
+                let mut n = noise.get([px as f64 * 0.25, py as f64 * 0.25]) as f32;
+                
+                // Atténuation du bruit sur les bords pour éviter les coutures visibles
+                if px == 0 || px == ATLAS_TILE_SIZE - 1 || py == 0 || py == ATLAS_TILE_SIZE - 1 {
+                    n *= 0.5;
+                }
+
                 let shade = match tile {
-                    TILE_WATER_TOP | TILE_WATER_SIDE => 1.0,
+                    TILE_WATER_TOP => 1.0,
                     TILE_GRASS_TOP => {
                         let stepped = (((n + 1.0) * 0.5 * 5.0).floor()) / 5.0;
                         0.78 + stepped * 0.38

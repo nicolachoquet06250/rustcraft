@@ -5,17 +5,20 @@ use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use crate::world::WorldState;
 
 const MOVE_SPEED: f32 = 10.0;
+const SNEAK_SPEED: f32 = 3.0;
 const LOOK_SENSITIVITY: f32 = 0.002;
 const GRAVITY: f32 = 25.0;
 const JUMP_SPEED: f32 = 9.0;
 pub const PLAYER_RADIUS: f32 = 0.30;
 pub const PLAYER_HEIGHT: f32 = 1.8;
 pub const EYE_HEIGHT: f32 = 1.62;
+pub const SNEAK_EYE_HEIGHT: f32 = 0.8;
 
 #[derive(Component)]
 pub struct PlayerPhysics {
     pub velocity_y: f32,
     pub on_ground: bool,
+    pub is_sneaking: bool,
 }
 
 impl Default for PlayerPhysics {
@@ -23,6 +26,7 @@ impl Default for PlayerPhysics {
         Self {
             velocity_y: 0.0,
             on_ground: false,
+            is_sneaking: false,
         }
     }
 }
@@ -113,6 +117,8 @@ pub fn fps_move(
         axis.x += 1.0;
     }
 
+    physics.is_sneaking = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+
     if keyboard.just_pressed(KeyCode::Space) && physics.on_ground {
         physics.velocity_y = JUMP_SPEED;
         physics.on_ground = false;
@@ -125,7 +131,8 @@ pub fn fps_move(
 
     let mut horizontal = Vec3::ZERO;
     if axis.length_squared() > 0.0 {
-        horizontal = (forward_xz * -axis.y + right_xz * axis.x).normalize() * MOVE_SPEED * time.delta_secs();
+        let speed = if physics.is_sneaking { SNEAK_SPEED } else { MOVE_SPEED };
+        horizontal = (forward_xz * -axis.y + right_xz * axis.x).normalize() * speed * time.delta_secs();
     }
 
     physics.velocity_y -= GRAVITY * time.delta_secs();
@@ -135,17 +142,17 @@ pub fn fps_move(
 
     let mut position = transform.translation;
     position.x += horizontal.x;
-    if collides_with_world(&world, position) {
+    if collides_with_world(&world, position, physics.is_sneaking) {
         position.x -= horizontal.x;
     }
 
     position.z += horizontal.z;
-    if collides_with_world(&world, position) {
+    if collides_with_world(&world, position, physics.is_sneaking) {
         position.z -= horizontal.z;
     }
 
     position.y += vertical;
-    if collides_with_world(&world, position) {
+    if collides_with_world(&world, position, physics.is_sneaking) {
         position.y -= vertical;
         if vertical < 0.0 {
             physics.on_ground = true;
@@ -156,12 +163,13 @@ pub fn fps_move(
     transform.translation = position;
 }
 
-pub fn collides_with_blocks<F>(camera_position: Vec3, mut is_solid: F) -> bool
+pub fn collides_with_blocks<F>(camera_position: Vec3, is_sneaking: bool, mut is_solid: F) -> bool
 where
     F: FnMut(IVec3) -> bool,
 {
-    let min = camera_position + Vec3::new(-PLAYER_RADIUS, -EYE_HEIGHT, -PLAYER_RADIUS);
-    let max = camera_position + Vec3::new(PLAYER_RADIUS, PLAYER_HEIGHT - EYE_HEIGHT, PLAYER_RADIUS);
+    let current_eye_height = if is_sneaking { SNEAK_EYE_HEIGHT } else { EYE_HEIGHT };
+    let min = camera_position + Vec3::new(-PLAYER_RADIUS, -current_eye_height, -PLAYER_RADIUS);
+    let max = camera_position + Vec3::new(PLAYER_RADIUS, PLAYER_HEIGHT - current_eye_height, PLAYER_RADIUS);
 
     let min_i = min.floor().as_ivec3();
     let max_i = max.floor().as_ivec3();
@@ -179,8 +187,8 @@ where
     false
 }
 
-fn collides_with_world(world: &WorldState, camera_position: Vec3) -> bool {
-    collides_with_blocks(camera_position, |pos| world.get_block_world(pos).is_solid())
+fn collides_with_world(world: &WorldState, camera_position: Vec3, is_sneaking: bool) -> bool {
+    collides_with_blocks(camera_position, is_sneaking, |pos| world.get_block_world(pos).is_solid())
 }
 
 #[cfg(test)]

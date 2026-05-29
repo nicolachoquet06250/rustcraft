@@ -115,5 +115,43 @@ fn collides_with_world_ignores_water_blocks() {
     };
 
     let camera_inside_water = Vec3::new(0.5, EYE_HEIGHT, 0.5);
-    assert!(!collides_with_world(&world, camera_inside_water));
+    assert!(!collides_with_world(&world, camera_inside_water, false));
+}
+
+#[test]
+fn sneak_reduces_speed() {
+    let mut app = App::new();
+    app.insert_resource(ButtonInput::<KeyCode>::default());
+    app.insert_resource(Time::<()>::default());
+    app.insert_resource(WorldState::new(Default::default()));
+    app.add_systems(Update, fps_move);
+
+    let entity = app
+        .world_mut()
+        .spawn((
+            Transform::default(),
+            FpsCamera {
+                yaw: 0.0,
+                pitch: 0.0,
+            },
+            PlayerPhysics::default(),
+        ))
+        .id();
+
+    app.world_mut()
+        .resource_mut::<Time<()>>()
+        .advance_by(Duration::from_secs_f32(1.0));
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyW);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+
+    app.update();
+
+    let transform = app.world().entity(entity).get::<Transform>().unwrap();
+    // Vitesse normale = 10, SNEAK_SPEED = 3.
+    // Après 1s, z devrait être environ -3.0
+    assert!(transform.translation.z < -2.9 && transform.translation.z > -3.1);
 }
