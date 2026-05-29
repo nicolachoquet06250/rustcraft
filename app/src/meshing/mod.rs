@@ -1,11 +1,13 @@
+use crate::core::{BlockId, ChunkPos, LocalPos, CHUNK_SIZE_I32, CHUNK_SIZE_USIZE};
+use crate::world::Chunk;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, PrimitiveTopology, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{
+    Extent3d, PrimitiveTopology, TextureDimension, TextureFormat,
+};
 use noise::{NoiseFn, Perlin};
 use std::collections::HashMap;
-use crate::core::{BlockId, ChunkPos, LocalPos, CHUNK_SIZE_I32, CHUNK_SIZE_USIZE};
-use crate::world::Chunk;
 
 pub const ATLAS_TILE_SIZE: u32 = 16;
 pub const ATLAS_GRID_SIZE: u32 = 4;
@@ -21,6 +23,8 @@ const TILE_WOOD: u32 = 6;
 const TILE_LEAVES: u32 = 7;
 const TILE_COAL_ORE: u32 = 8;
 const WATER_ALPHA: u8 = 204;
+const WATER_SURFACE_Y_OFFSET: f32 = -0.08;
+const WATER_OPACITY: f32 = 0.58;
 
 fn block_base_color(block: BlockId) -> [u8; 3] {
     match block {
@@ -71,6 +75,27 @@ fn tile_uv_rect(tile: u32) -> [[f32; 2]; 4] {
     let v1 = ((tile_y + 1) as f32 * tile_size - pad) / atlas_size;
 
     [[u0, v1], [u1, v1], [u1, v0], [u0, v0]]
+}
+
+pub fn create_terrain_material(atlas: Handle<Image>) -> StandardMaterial {
+    StandardMaterial {
+        base_color: Color::WHITE,
+        base_color_texture: Some(atlas),
+        perceptual_roughness: 0.9,
+        ..default()
+    }
+}
+
+pub fn create_water_material() -> StandardMaterial {
+    StandardMaterial {
+        base_color: Color::srgba(0.16, 0.42, 0.95, WATER_OPACITY),
+        alpha_mode: AlphaMode::AlphaToCoverage,
+        cull_mode: None,
+        double_sided: true,
+        perceptual_roughness: 0.18,
+        reflectance: 0.55,
+        ..default()
+    }
 }
 
 pub fn generate_block_texture_atlas() -> Image {
@@ -172,9 +197,9 @@ fn get_block_world(chunks: &HashMap<ChunkPos, Chunk>, world_pos: IVec3) -> Block
     }
 }
 
-fn should_render_face(current: BlockId, neighbor: BlockId) -> bool {
+fn should_render_face(current: BlockId, neighbor: BlockId, normal: IVec3) -> bool {
     if current == BlockId::Water {
-        return neighbor != BlockId::Water;
+        return normal.y > 0 && neighbor == BlockId::Air;
     }
 
     if neighbor == current {
@@ -188,7 +213,10 @@ fn should_render_face(current: BlockId, neighbor: BlockId) -> bool {
     !(current.is_opaque() && neighbor.is_opaque())
 }
 
-pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) -> Option<Mesh> {
+pub fn build_chunk_terrain_mesh(
+    chunk_pos: ChunkPos,
+    chunks: &HashMap<ChunkPos, Chunk>,
+) -> Option<Mesh> {
     let chunk = chunks.get(&chunk_pos)?;
     let chunk_origin = IVec3::new(
         chunk_pos.x * CHUNK_SIZE_I32,
@@ -204,27 +232,57 @@ pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) 
     let faces: [(IVec3, [[f32; 3]; 4]); 6] = [
         (
             IVec3::new(1, 0, 0),
-            [[1.0, 0.0, 1.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 1.0, 1.0]],
+            [
+                [1.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+            ],
         ),
         (
             IVec3::new(-1, 0, 0),
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 1.0, 0.0]],
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0],
+                [0.0, 1.0, 0.0],
+            ],
         ),
         (
             IVec3::new(0, 1, 0),
-            [[0.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+            [
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
         ),
         (
             IVec3::new(0, -1, 0),
-            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ],
         ),
         (
             IVec3::new(0, 0, 1),
-            [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0]],
+            [
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
         ),
         (
             IVec3::new(0, 0, -1),
-            [[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0]],
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
         ),
     ];
 
@@ -238,7 +296,7 @@ pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) 
                 };
 
                 let current = chunk.get_local(local);
-                if current == BlockId::Air {
+                if matches!(current, BlockId::Air | BlockId::Water) {
                     continue;
                 }
 
@@ -247,7 +305,7 @@ pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) 
                 for (normal, corners) in faces {
                     let neighbor = voxel_world + normal;
                     let neighbor_block = get_block_world(chunks, neighbor);
-                    if !should_render_face(current, neighbor_block) {
+                    if !should_render_face(current, neighbor_block, normal) {
                         continue;
                     }
 
@@ -292,6 +350,76 @@ pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) 
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh.insert_indices(bevy::mesh::Indices::U32(indices));
     Some(mesh)
+}
+
+pub fn build_chunk_water_mesh(
+    chunk_pos: ChunkPos,
+    chunks: &HashMap<ChunkPos, Chunk>,
+) -> Option<Mesh> {
+    let chunk = chunks.get(&chunk_pos)?;
+    let chunk_origin = IVec3::new(
+        chunk_pos.x * CHUNK_SIZE_I32,
+        chunk_pos.y * CHUNK_SIZE_I32,
+        chunk_pos.z * CHUNK_SIZE_I32,
+    );
+
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    let face_uvs = tile_uv_rect(TILE_WATER);
+
+    for lx in 0..CHUNK_SIZE_USIZE {
+        for ly in 0..CHUNK_SIZE_USIZE {
+            for lz in 0..CHUNK_SIZE_USIZE {
+                let local = LocalPos {
+                    x: lx,
+                    y: ly,
+                    z: lz,
+                };
+
+                if chunk.get_local(local) != BlockId::Water {
+                    continue;
+                }
+
+                let voxel_world = chunk_origin + IVec3::new(lx as i32, ly as i32, lz as i32);
+                if get_block_world(chunks, voxel_world + IVec3::Y) != BlockId::Air {
+                    continue;
+                }
+
+                let base = positions.len() as u32;
+                let y = voxel_world.y as f32 + 1.0 + WATER_SURFACE_Y_OFFSET;
+                positions.extend_from_slice(&[
+                    [voxel_world.x as f32, y, voxel_world.z as f32 + 1.0],
+                    [voxel_world.x as f32 + 1.0, y, voxel_world.z as f32 + 1.0],
+                    [voxel_world.x as f32 + 1.0, y, voxel_world.z as f32],
+                    [voxel_world.x as f32, y, voxel_world.z as f32],
+                ]);
+                normals.extend_from_slice(&[[0.0, 1.0, 0.0]; 4]);
+                uvs.extend_from_slice(&face_uvs);
+                indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+        }
+    }
+
+    if indices.is_empty() {
+        return None;
+    }
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(bevy::mesh::Indices::U32(indices));
+    Some(mesh)
+}
+
+pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) -> Option<Mesh> {
+    let terrain_mesh = build_chunk_terrain_mesh(chunk_pos, chunks);
+    terrain_mesh.or_else(|| build_chunk_water_mesh(chunk_pos, chunks))
 }
 
 #[cfg(test)]

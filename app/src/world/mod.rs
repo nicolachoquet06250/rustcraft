@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use noise::{NoiseFn, Perlin};
 use std::collections::HashMap;
 
-use crate::core::{local_index, BlockId, ChunkPos, LocalPos, CHUNK_SIZE_I32, CHUNK_SIZE_USIZE, CHUNK_VOLUME};
+use crate::core::{
+    local_index, BlockId, ChunkPos, LocalPos, CHUNK_SIZE_I32, CHUNK_SIZE_USIZE, CHUNK_VOLUME,
+};
 
 const HEIGHT_NOISE_SCALE: f64 = 0.015;
 const DETAIL_NOISE_SCALE: f64 = 0.06;
@@ -154,7 +156,10 @@ pub struct WorldState {
     pub chunks: HashMap<ChunkPos, Chunk>,
     pub chunk_entities: HashMap<ChunkPos, Entity>,
     pub chunk_meshes: HashMap<ChunkPos, Handle<Mesh>>,
+    pub water_entities: HashMap<ChunkPos, Entity>,
+    pub water_meshes: HashMap<ChunkPos, Handle<Mesh>>,
     pub material: Handle<StandardMaterial>,
+    pub water_material: Handle<StandardMaterial>,
 }
 
 impl Chunk {
@@ -175,7 +180,10 @@ impl Chunk {
             }
         }
 
-        Self { blocks, dirty: true }
+        Self {
+            blocks,
+            dirty: true,
+        }
     }
 
     pub fn get_local(&self, local: LocalPos) -> BlockId {
@@ -197,11 +205,21 @@ impl Chunk {
 
 impl WorldState {
     pub fn new(material: Handle<StandardMaterial>) -> Self {
+        Self::new_with_water_material(material.clone(), material)
+    }
+
+    pub fn new_with_water_material(
+        material: Handle<StandardMaterial>,
+        water_material: Handle<StandardMaterial>,
+    ) -> Self {
         Self {
             chunks: HashMap::new(),
             chunk_entities: HashMap::new(),
             chunk_meshes: HashMap::new(),
+            water_entities: HashMap::new(),
+            water_meshes: HashMap::new(),
             material,
+            water_material,
         }
     }
 

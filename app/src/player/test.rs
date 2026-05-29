@@ -111,7 +111,10 @@ fn collides_with_world_ignores_water_blocks() {
         chunks,
         chunk_entities: std::collections::HashMap::new(),
         chunk_meshes: std::collections::HashMap::new(),
+        water_entities: std::collections::HashMap::new(),
+        water_meshes: std::collections::HashMap::new(),
         material: default(),
+        water_material: default(),
     };
 
     let camera_inside_water = Vec3::new(0.5, EYE_HEIGHT, 0.5);

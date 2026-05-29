@@ -82,7 +82,7 @@ fn build_chunk_mesh_keeps_solid_face_visible_when_touching_water() {
     );
 
     let mesh = build_chunk_mesh(pos, &chunks).expect("mesh should exist");
-    assert_eq!(mesh.count_vertices(), 28);
+    assert_eq!(mesh.count_vertices(), 24);
 }
 
 #[test]
@@ -98,6 +98,19 @@ fn build_chunk_mesh_renders_only_top_face_for_water_block() {
 
     let mesh = build_chunk_mesh(pos, &chunks).expect("mesh should exist");
     assert_eq!(mesh.count_vertices(), 4);
+}
+
+#[test]
+fn build_chunk_mesh_hides_lateral_water_faces_next_to_air() {
+    let mut chunks = HashMap::new();
+    let pos = ChunkPos { x: 0, y: 0, z: 0 };
+    let mut chunk = make_air_chunk();
+    chunk.blocks[crate::core::local_index(LocalPos { x: 1, y: 1, z: 1 })] = BlockId::Water;
+    chunk.blocks[crate::core::local_index(LocalPos { x: 2, y: 1, z: 1 })] = BlockId::Water;
+    chunks.insert(pos, chunk);
+
+    let mesh = build_chunk_mesh(pos, &chunks).expect("mesh should exist");
+    assert_eq!(mesh.count_vertices(), 8);
 }
 
 #[test]

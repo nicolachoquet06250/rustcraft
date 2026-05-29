@@ -17,8 +17,13 @@ use crate::interaction::{
     break_and_place_blocks, select_hotbar_slot, update_selected_block_target, HotbarState,
     SelectedBlockTarget,
 };
-use crate::meshing::{build_chunk_mesh, generate_block_texture_atlas};
-use crate::player::{collides_with_blocks, fps_look, fps_move, lock_cursor, EYE_HEIGHT, FpsCamera, PlayerPhysics, PLAYER_HEIGHT};
+use crate::meshing::{
+    build_chunk_terrain_mesh, build_chunk_water_mesh, create_terrain_material,
+    create_water_material, generate_block_texture_atlas,
+};
+use crate::player::{
+    collides_with_blocks, fps_look, fps_move, lock_cursor, FpsCamera, PlayerPhysics, EYE_HEIGHT,
+};
 use crate::world::{Chunk, WorldState};
 
 #[derive(Resource)]
@@ -71,15 +76,12 @@ fn setup(
             pitch: -0.3,
         },
         PlayerPhysics::default(),
+        Msaa::Sample4,
     ));
 
     let atlas = images.add(generate_block_texture_atlas());
-    let cube_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        base_color_texture: Some(atlas),
-        alpha_mode: AlphaMode::Blend,
-        ..default()
-    });
+    let terrain_material = materials.add(create_terrain_material(atlas));
+    let water_material = materials.add(create_water_material());
 
     let (sender, receiver) = channel();
     commands.insert_resource(ChunkGenerationQueue {
@@ -88,7 +90,10 @@ fn setup(
         in_flight: HashSet::new(),
     });
 
-    commands.insert_resource(WorldState::new(cube_material));
+    commands.insert_resource(WorldState::new_with_water_material(
+        terrain_material,
+        water_material,
+    ));
     commands.insert_resource(HotbarState::default());
     commands.insert_resource(SelectedBlockTarget(None));
 }
@@ -112,7 +117,11 @@ fn find_spawn_position(x: i32, z: i32) -> Vec3 {
         }
     }
 
-    Vec3::new(x as f32 + 0.5, (MAX_Y + 2) as f32 + EYE_HEIGHT, z as f32 + 0.5)
+    Vec3::new(
+        x as f32 + 0.5,
+        (MAX_Y + 2) as f32 + EYE_HEIGHT,
+        z as f32 + 0.5,
+    )
 }
 
 fn find_spawn_in_column(x: i32, z: i32, min_y: i32, max_y: i32) -> Option<Vec3> {
@@ -129,13 +138,16 @@ fn find_spawn_in_column(x: i32, z: i32, min_y: i32, max_y: i32) -> Option<Vec3> 
         let feet = generated_block_at(IVec3::new(x, stand_y, z));
         let head = generated_block_at(IVec3::new(x, stand_y + 1, z));
 
-        if !below.is_solid() || feet != crate::core::BlockId::Air || head != crate::core::BlockId::Air {
+        if !below.is_solid()
+            || feet != crate::core::BlockId::Air
+            || head != crate::core::BlockId::Air
+        {
             continue;
         }
 
         let candidate = Vec3::new(x as f32 + 0.5, stand_y as f32 + EYE_HEIGHT, z as f32 + 0.5);
         if !generated_world_collides(candidate) {
-            return Some(candidate + Vec3::new(0f32, PLAYER_HEIGHT, 0f32));
+            return Some(candidate);
         }
     }
 
@@ -143,7 +155,9 @@ fn find_spawn_in_column(x: i32, z: i32, min_y: i32, max_y: i32) -> Option<Vec3> 
 }
 
 fn generated_world_collides(camera_position: Vec3) -> bool {
-    collides_with_blocks(camera_position, |world_pos| generated_block_at(world_pos).is_solid())
+    collides_with_blocks(camera_position, |world_pos| {
+        generated_block_at(world_pos).is_solid()
+    })
 }
 
 fn generated_block_at(world_pos: IVec3) -> crate::core::BlockId {
@@ -170,8 +184,16 @@ mod test {
         let head = generated_block_at(feet_world + IVec3::Y);
 
         assert!(below.is_solid(), "spawn must stand on a solid block");
-        assert_eq!(feet, crate::core::BlockId::Air, "spawn feet space must be air");
-        assert_eq!(head, crate::core::BlockId::Air, "spawn head space must be air");
+        assert_eq!(
+            feet,
+            crate::core::BlockId::Air,
+            "spawn feet space must be air"
+        );
+        assert_eq!(
+            head,
+            crate::core::BlockId::Air,
+            "spawn head space must be air"
+        );
     }
 
     #[test]
@@ -208,11 +230,12 @@ fn stream_chunks(
         }
     }
 
-    let generated_chunks: Vec<(ChunkPos, Chunk)> = if let Ok(receiver) = generation_queue.receiver.lock() {
-        receiver.try_iter().collect()
-    } else {
-        Vec::new()
-    };
+    let generated_chunks: Vec<(ChunkPos, Chunk)> =
+        if let Ok(receiver) = generation_queue.receiver.lock() {
+            receiver.try_iter().collect()
+        } else {
+            Vec::new()
+        };
 
     for (chunk_pos, chunk) in generated_chunks {
         generation_queue.in_flight.remove(&chunk_pos);
@@ -222,7 +245,8 @@ fn stream_chunks(
     }
 
     for chunk_pos in &desired {
-        if !world.chunks.contains_key(chunk_pos) && !generation_queue.in_flight.contains(chunk_pos) {
+        if !world.chunks.contains_key(chunk_pos) && !generation_queue.in_flight.contains(chunk_pos)
+        {
             generation_queue.in_flight.insert(*chunk_pos);
             let sender = generation_queue.sender.clone();
             let chunk_pos_copy = *chunk_pos;
@@ -246,6 +270,10 @@ fn stream_chunks(
             commands.entity(entity).despawn();
         }
         world.chunk_meshes.remove(&chunk_pos);
+        if let Some(entity) = world.water_entities.remove(&chunk_pos) {
+            commands.entity(entity).despawn();
+        }
+        world.water_meshes.remove(&chunk_pos);
         world.chunks.remove(&chunk_pos);
     }
 
@@ -256,42 +284,76 @@ fn stream_chunks(
         .collect();
 
     for chunk_pos in dirty_chunks {
-        let Some(mesh) = build_chunk_mesh(chunk_pos, &world.chunks) else {
-            if let Some(entity) = world.chunk_entities.remove(&chunk_pos) {
-                commands.entity(entity).despawn();
-            }
-            world.chunk_meshes.remove(&chunk_pos);
-            if let Some(chunk) = world.chunks.get_mut(&chunk_pos) {
-                chunk.dirty = false;
-            }
-            continue;
-        };
+        let terrain_mesh = build_chunk_terrain_mesh(chunk_pos, &world.chunks);
+        let water_mesh = build_chunk_water_mesh(chunk_pos, &world.chunks);
+        let terrain_material = world.material.clone();
+        let water_material = world.water_material.clone();
 
-        if let Some(handle) = world.chunk_meshes.get(&chunk_pos).cloned() {
-            if let Some(existing_mesh) = meshes.get_mut(&handle) {
-                *existing_mesh = mesh;
-            } else {
-                let new_handle = meshes.add(mesh);
-                world.chunk_meshes.insert(chunk_pos, new_handle.clone());
-                if let Some(entity) = world.chunk_entities.get(&chunk_pos).copied() {
-                    commands.entity(entity).insert(Mesh3d(new_handle));
-                }
-            }
-        } else {
-            let mesh_handle = meshes.add(mesh);
-            let entity = commands
-                .spawn((
-                    Mesh3d(mesh_handle.clone()),
-                    MeshMaterial3d(world.material.clone()),
-                    Transform::default(),
-                ))
-                .id();
-            world.chunk_entities.insert(chunk_pos, entity);
-            world.chunk_meshes.insert(chunk_pos, mesh_handle);
-        }
+        let world_state = world.as_mut();
+        update_chunk_layer(
+            chunk_pos,
+            terrain_mesh,
+            terrain_material,
+            &mut commands,
+            &mut meshes,
+            &mut world_state.chunk_entities,
+            &mut world_state.chunk_meshes,
+        );
+        update_chunk_layer(
+            chunk_pos,
+            water_mesh,
+            water_material,
+            &mut commands,
+            &mut meshes,
+            &mut world_state.water_entities,
+            &mut world_state.water_meshes,
+        );
 
-        if let Some(chunk) = world.chunks.get_mut(&chunk_pos) {
+        if let Some(chunk) = world_state.chunks.get_mut(&chunk_pos) {
             chunk.dirty = false;
         }
+    }
+}
+
+fn update_chunk_layer(
+    chunk_pos: ChunkPos,
+    mesh: Option<Mesh>,
+    material: Handle<StandardMaterial>,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    entities: &mut std::collections::HashMap<ChunkPos, Entity>,
+    mesh_handles: &mut std::collections::HashMap<ChunkPos, Handle<Mesh>>,
+) {
+    let Some(mesh) = mesh else {
+        if let Some(entity) = entities.remove(&chunk_pos) {
+            commands.entity(entity).despawn();
+        }
+        mesh_handles.remove(&chunk_pos);
+        return;
+    };
+
+    if let Some(handle) = mesh_handles.get(&chunk_pos).cloned() {
+        if let Some(existing_mesh) = meshes.get_mut(&handle) {
+            *existing_mesh = mesh;
+        } else {
+            let new_handle = meshes.add(mesh);
+            mesh_handles.insert(chunk_pos, new_handle.clone());
+            if let Some(entity) = entities.get(&chunk_pos).copied() {
+                commands
+                    .entity(entity)
+                    .insert((Mesh3d(new_handle), MeshMaterial3d(material)));
+            }
+        }
+    } else {
+        let mesh_handle = meshes.add(mesh);
+        let entity = commands
+            .spawn((
+                Mesh3d(mesh_handle.clone()),
+                MeshMaterial3d(material),
+                Transform::default(),
+            ))
+            .id();
+        entities.insert(chunk_pos, entity);
+        mesh_handles.insert(chunk_pos, mesh_handle);
     }
 }
