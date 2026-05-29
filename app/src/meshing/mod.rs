@@ -16,11 +16,12 @@ const TILE_GRASS_SIDE: u32 = 1;
 const TILE_DIRT: u32 = 2;
 const TILE_STONE: u32 = 3;
 const TILE_SAND: u32 = 4;
-const TILE_WATER: u32 = 5;
-const TILE_WOOD: u32 = 6;
-const TILE_LEAVES: u32 = 7;
-const TILE_COAL_ORE: u32 = 8;
-const WATER_ALPHA: u8 = 204;
+const TILE_WATER_TOP: u32 = 5;
+const TILE_WATER_SIDE: u32 = 6;
+const TILE_WOOD: u32 = 7;
+const TILE_LEAVES: u32 = 8;
+const TILE_COAL_ORE: u32 = 9;
+const WATER_ALPHA: u8 = 100;
 
 fn block_base_color(block: BlockId) -> [u8; 3] {
     match block {
@@ -51,7 +52,13 @@ fn block_face_tile_index(block: BlockId, normal: IVec3) -> Option<u32> {
         BlockId::Dirt => Some(TILE_DIRT),
         BlockId::Stone => Some(TILE_STONE),
         BlockId::Sand => Some(TILE_SAND),
-        BlockId::Water => Some(TILE_WATER),
+        BlockId::Water => {
+            if normal.y > 0 {
+                Some(TILE_WATER_TOP)
+            } else {
+                Some(TILE_WATER_SIDE)
+            }
+        }
         BlockId::Wood => Some(TILE_WOOD),
         BlockId::Leaves => Some(TILE_LEAVES),
         BlockId::CoalOre => Some(TILE_COAL_ORE),
@@ -63,7 +70,9 @@ fn tile_uv_rect(tile: u32) -> [[f32; 2]; 4] {
     let tile_y = tile / ATLAS_GRID_SIZE;
     let atlas_size = ATLAS_SIZE as f32;
     let tile_size = ATLAS_TILE_SIZE as f32;
-    let pad = 0.001;
+    
+    // On retire le padding pour les tuiles d'eau pour éviter les lignes de délimitation
+    let pad = 0.0;
 
     let u0 = (tile_x as f32 * tile_size + pad) / atlas_size;
     let v0 = (tile_y as f32 * tile_size + pad) / atlas_size;
@@ -81,7 +90,8 @@ pub fn generate_block_texture_atlas() -> Image {
         TILE_DIRT,
         TILE_STONE,
         TILE_SAND,
-        TILE_WATER,
+        TILE_WATER_TOP,
+        TILE_WATER_SIDE,
         TILE_WOOD,
         TILE_LEAVES,
         TILE_COAL_ORE,
@@ -96,7 +106,7 @@ pub fn generate_block_texture_atlas() -> Image {
             TILE_DIRT => block_base_color(BlockId::Dirt),
             TILE_STONE => block_base_color(BlockId::Stone),
             TILE_SAND => block_base_color(BlockId::Sand),
-            TILE_WATER => block_base_color(BlockId::Water),
+            TILE_WATER_TOP | TILE_WATER_SIDE => block_base_color(BlockId::Water),
             TILE_WOOD => block_base_color(BlockId::Wood),
             TILE_LEAVES => block_base_color(BlockId::Leaves),
             TILE_COAL_ORE => block_base_color(BlockId::CoalOre),
@@ -111,7 +121,7 @@ pub fn generate_block_texture_atlas() -> Image {
 
                 let n = noise.get([px as f64 * 0.25, py as f64 * 0.25]) as f32;
                 let shade = match tile {
-                    TILE_WATER => 0.92 + n * 0.08,
+                    TILE_WATER_TOP | TILE_WATER_SIDE => 1.0,
                     TILE_GRASS_TOP => {
                         let stepped = (((n + 1.0) * 0.5 * 5.0).floor()) / 5.0;
                         0.78 + stepped * 0.38
@@ -143,7 +153,7 @@ pub fn generate_block_texture_atlas() -> Image {
                 data[i] = r as u8;
                 data[i + 1] = g as u8;
                 data[i + 2] = b as u8;
-                data[i + 3] = if tile == TILE_WATER { WATER_ALPHA } else { 255 };
+                data[i + 3] = if tile == TILE_WATER_TOP { WATER_ALPHA } else { 255 };
             }
         }
     }
@@ -172,13 +182,14 @@ fn get_block_world(chunks: &HashMap<ChunkPos, Chunk>, world_pos: IVec3) -> Block
     }
 }
 
-fn should_render_face(current: BlockId, neighbor: BlockId) -> bool {
-    if current == BlockId::Water {
-        return neighbor != BlockId::Water;
-    }
-
+fn should_render_face(current: BlockId, normal: IVec3, neighbor: BlockId) -> bool {
     if neighbor == current {
         return false;
+    }
+
+    if current == BlockId::Water {
+        // Pour l'eau, on ne dessine que la face supérieure (normal y = 1)
+        return normal.y == 1 && neighbor != BlockId::Water;
     }
 
     if neighbor == BlockId::Water {
@@ -247,7 +258,7 @@ pub fn build_chunk_mesh(chunk_pos: ChunkPos, chunks: &HashMap<ChunkPos, Chunk>) 
                 for (normal, corners) in faces {
                     let neighbor = voxel_world + normal;
                     let neighbor_block = get_block_world(chunks, neighbor);
-                    if !should_render_face(current, neighbor_block) {
+                    if !should_render_face(current, normal, neighbor_block) {
                         continue;
                     }
 

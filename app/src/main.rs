@@ -30,7 +30,13 @@ struct ChunkGenerationQueue {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "RustCraft".into(),
+                ..default()
+            }),
+            ..default()
+        }))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -65,6 +71,7 @@ fn setup(
 
     commands.spawn((
         Camera3d::default(),
+        Msaa::Sample4,
         Transform::from_translation(spawn).looking_at(spawn + Vec3::new(0.0, 0.0, -1.0), Vec3::Y),
         FpsCamera {
             yaw: 0.0,
@@ -77,7 +84,7 @@ fn setup(
     let cube_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         base_color_texture: Some(atlas),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::AlphaToCoverage,
         ..default()
     });
 
@@ -129,7 +136,7 @@ fn find_spawn_in_column(x: i32, z: i32, min_y: i32, max_y: i32) -> Option<Vec3> 
         let feet = generated_block_at(IVec3::new(x, stand_y, z));
         let head = generated_block_at(IVec3::new(x, stand_y + 1, z));
 
-        if !below.is_solid() || feet != crate::core::BlockId::Air || head != crate::core::BlockId::Air {
+        if !below.is_solid() || feet != core::BlockId::Air || head != core::BlockId::Air {
             continue;
         }
 
@@ -146,7 +153,7 @@ fn generated_world_collides(camera_position: Vec3) -> bool {
     collides_with_blocks(camera_position, |world_pos| generated_block_at(world_pos).is_solid())
 }
 
-fn generated_block_at(world_pos: IVec3) -> crate::core::BlockId {
+fn generated_block_at(world_pos: IVec3) -> core::BlockId {
     let (chunk_pos, local_pos) = world_to_chunk_local(world_pos);
     let chunk = Chunk::generate(chunk_pos);
     chunk.get_local(local_pos)
@@ -170,8 +177,8 @@ mod test {
         let head = generated_block_at(feet_world + IVec3::Y);
 
         assert!(below.is_solid(), "spawn must stand on a solid block");
-        assert_eq!(feet, crate::core::BlockId::Air, "spawn feet space must be air");
-        assert_eq!(head, crate::core::BlockId::Air, "spawn head space must be air");
+        assert_eq!(feet, core::BlockId::Air, "spawn feet space must be air");
+        assert_eq!(head, core::BlockId::Air, "spawn head space must be air");
     }
 
     #[test]

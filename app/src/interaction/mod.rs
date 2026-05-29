@@ -134,7 +134,10 @@ pub fn break_and_place_blocks(
     };
 
     if mouse.just_pressed(MouseButton::Left) {
-        let _ = world.set_block_world(hit.block_pos, BlockId::Air);
+        let block = world.get_block_world(hit.block_pos);
+        if block.is_breakable() {
+            let _ = world.set_block_world(hit.block_pos, BlockId::Air);
+        }
     }
 
     if mouse.just_pressed(MouseButton::Right) {

@@ -25,6 +25,10 @@ impl BlockId {
     pub fn is_opaque(self) -> bool {
         !matches!(self, Self::Air | Self::Water)
     }
+
+    pub fn is_breakable(self) -> bool {
+        !matches!(self, Self::Water)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]

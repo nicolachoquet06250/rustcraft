@@ -97,6 +97,7 @@ fn build_chunk_mesh_renders_only_top_face_for_water_block() {
     );
 
     let mesh = build_chunk_mesh(pos, &chunks).expect("mesh should exist");
+    // Seule la face supérieure (4 sommets) doit être rendue
     assert_eq!(mesh.count_vertices(), 4);
 }
 
@@ -173,6 +174,38 @@ fn generated_texture_atlas_is_not_uniform() {
     }
 
     assert!(max > min, "expected procedural texture atlas variation");
+}
+
+#[test]
+fn generated_texture_atlas_makes_only_water_top_transparent() {
+    let image = generate_block_texture_atlas();
+    let data = image.data.as_ref().expect("atlas should contain pixel data");
+
+    for tile in [
+        TILE_GRASS_TOP,
+        TILE_GRASS_SIDE,
+        TILE_DIRT,
+        TILE_STONE,
+        TILE_SAND,
+        TILE_WATER_TOP,
+        TILE_WATER_SIDE,
+        TILE_WOOD,
+        TILE_LEAVES,
+        TILE_COAL_ORE,
+    ] {
+        let tile_x = tile % ATLAS_GRID_SIZE;
+        let tile_y = tile / ATLAS_GRID_SIZE;
+        let x = tile_x * ATLAS_TILE_SIZE;
+        let y = tile_y * ATLAS_TILE_SIZE;
+        let i = ((y * ATLAS_SIZE + x) * 4 + 3) as usize;
+        let expected_alpha = if tile == TILE_WATER_TOP {
+            WATER_ALPHA
+        } else {
+            255
+        };
+
+        assert_eq!(data[i], expected_alpha, "tile {} has wrong alpha", tile);
+    }
 }
 
 #[test]
